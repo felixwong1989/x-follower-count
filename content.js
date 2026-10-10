@@ -3,8 +3,30 @@
   const CHANNEL = "x-follower-count:v1";
   const SELECTOR = '[data-testid="UserCell"], [data-testid="User-Name"]';
   const { validHandle, count, formatCount } = globalThis.XFollowerCore;
+  globalThis.__xFollowerContentController?.stop();
+  const rendererId = crypto.randomUUID();
   const cache = new Map();
   let timer;
+  let claimed = false;
+  let stopped = false;
+  function ownsPage() {
+    const root = document.documentElement;
+    if (!root) return true;
+    if (!claimed) {
+      root.dataset.xfcRenderer = rendererId;
+      claimed = true;
+    }
+    return root.dataset.xfcRenderer === rendererId;
+  }
+  function linkText(link) {
+    // Injected labels must not change how a profile link is classified.
+    const walker = document.createTreeWalker(link, NodeFilter.SHOW_TEXT);
+    let text = "", node;
+    while ((node = walker.nextNode())) {
+      if (!node.parentElement?.closest(".xfc-badge")) text += node.textContent;
+    }
+    return text.trim();
+  }
   function profileHandle(link) {
     try {
       const url = new URL(link.getAttribute("href"), location.href);
@@ -19,22 +41,23 @@
     for (const link of links) {
       const handle = profileHandle(link);
       if (!handle) continue;
-      const spans = [...link.querySelectorAll("span")];
-      const target = spans.find(span => span.textContent.trim().toLowerCase() === "@" + handle);
-      if (target || link.textContent.trim().toLowerCase() === "@" + handle) return { handle, target: target || link };
+      // X can shorten an advertising handle in the DOM ("@name...").
+      // Its href remains the complete account identity.
+      if (linkText(link).startsWith("@")) return { handle, target: link };
     }
     for (const link of links) {
       const handle = profileHandle(link);
       if (handle && link.closest('[data-testid="UserAvatar-Container-' + handle + '"]')) continue;
-      if (handle && !link.querySelector("img") && link.textContent.trim()) return { handle, target: link };
+      if (handle && !link.querySelector("img") && linkText(link)) return { handle, target: link };
     }
     return null;
   }
   function render() {
     timer = null;
+    if (stopped || !ownsPage()) return stop();
     // Shared DOM diagnostics let us inspect injection without reading private page state.
     if (document.documentElement) {
-      document.documentElement.dataset.xfcVersion = '1.0.1';
+      document.documentElement.dataset.xfcVersion = '1.0.2';
       document.documentElement.dataset.xfcUsers = String(cache.size);
     }
     for (const host of document.querySelectorAll(SELECTOR)) {
@@ -59,21 +82,27 @@
       if (badge.getAttribute("aria-label") !== title) badge.setAttribute("aria-label", title);
       const nameLink = [...host.querySelectorAll('a[href]')].find(link =>
         link.closest(SELECTOR) === host && profileHandle(link) === owner.handle &&
-        !link.querySelector('img') && link.textContent.trim() &&
-        link.textContent.trim().toLowerCase() !== '@' + owner.handle);
+        !link.querySelector('img') && linkText(link) &&
+        !linkText(link).startsWith('@'));
       const row = nameLink?.firstElementChild;
       if (row && getComputedStyle(row).display === 'flex' && getComputedStyle(row).flexDirection === 'row') {
-        if (badge.parentNode !== row || row.lastChild !== badge) row.append(badge);
+        // Keep a mounted badge in place when X adds other name decorations.
+        if (badge.parentNode !== row) row.append(badge);
       } else {
         const target = nameLink || owner.target;
         if (target.nextSibling !== badge) target.after(badge);
       }
     }
+    // DOM writes above belong to this renderer; they must not schedule it again.
+    // Page mutations happen in later tasks and are still observed normally.
+    observer.takeRecords();
   }
   function schedule() {
+    if (stopped || !ownsPage()) return stop();
     if (timer === undefined || timer === null) timer = setTimeout(render, 80);
   }
-  window.addEventListener("message", event => {
+  function onMessage(event) {
+    if (stopped || !ownsPage()) return stop();
     if (event.source !== window || event.origin !== location.origin || event.data?.channel !== CHANNEL ||
         event.data.type !== "users" || !Array.isArray(event.data.users)) return;
     for (const user of event.data.users.slice(0, 5000)) {
@@ -84,8 +113,16 @@
     }
     while (cache.size > 5000) cache.delete(cache.keys().next().value);
     schedule();
-  });
+  }
+  window.addEventListener("message", onMessage);
   const observer = new MutationObserver(schedule);
+  function stop() {
+    stopped = true;
+    clearTimeout(timer);
+    observer.disconnect();
+    window.removeEventListener("message", onMessage);
+  }
+  globalThis.__xFollowerContentController = { stop };
   observer.observe(document, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["href", "data-testid"] });
   window.postMessage({ channel: CHANNEL, type: "ready" }, location.origin);
   schedule();

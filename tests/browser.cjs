@@ -3,7 +3,7 @@ const path = require('node:path');
 const os = require('node:os');
 const assert = require('node:assert/strict');
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
-const extensionPath = path.resolve(__dirname, '..');
+const extensionPath = process.env.XFC_EXTENSION_PATH || path.resolve(__dirname, '..');
 const fixture = fs.readFileSync(path.join(__dirname, 'fixture.html'), 'utf8');
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'xfc-test-'));
 
@@ -108,7 +108,74 @@ const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'xfc-test-'));
     assert.equal(apiRequests.length, 5);
     passed.push('XHR text, non-JSON and network errors preserve page behavior; no added API calls');
 
-    await page.evaluate(() => document.getElementById('dynamic').remove());
+    // Model an advertiser whose visible @handle is shortened after a badge
+    // changes the available space. A brand link is not the tweet author.
+    await page.evaluate(() => {
+      const host = document.createElement('div');
+      host.dataset.testid = 'User-Name'; host.id = 'advertiser';
+      host.style.cssText = 'width:260px;display:flex;flex-wrap:wrap';
+      host.innerHTML = '<a href="/Brand"><span>G</span></a>' +
+        '<a class="author" href="/Carol"><div style="display:flex;flex-direction:row"><span>Long advertiser display name</span></div></a>' +
+        '<a class="handle" href="/Carol"><span>@Carol</span></a>';
+      document.querySelector('main').append(host);
+      window.__advertiserChanges = 0;
+      const observer = new MutationObserver(records => {
+        for (const record of records) {
+          if ([...record.addedNodes, ...record.removedNodes].some(n => n.matches?.('.xfc-badge'))) window.__advertiserChanges++;
+        }
+        const text = host.querySelector('a.handle span');
+        const expected = host.querySelector('.xfc-badge') ? '@Ca...' : '@Carol';
+        if (text.textContent !== expected) text.textContent = expected;
+      });
+      observer.observe(host, { childList: true, subtree: true });
+      window.__advertiserObserver = observer;
+    });
+    await page.waitForFunction(() => document.querySelector('#advertiser .xfc-badge')?.dataset.handle === 'carol');
+    const stability = await page.evaluate(async () => {
+      const positions = [];
+      for (let i = 0; i < 12; i++) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        const badge = document.querySelector('#advertiser .xfc-badge');
+        positions.push(badge ? [badge.dataset.handle, badge.parentElement.parentElement.className,
+          document.querySelector('#advertiser').getBoundingClientRect().height] : null);
+      }
+      window.__advertiserObserver.disconnect();
+      return { positions, changes: window.__advertiserChanges };
+    });
+    assert.ok(stability.positions.every(p => p && p[0] === 'carol' && p[1] === 'author'), JSON.stringify(stability));
+    assert.equal(new Set(stability.positions.map(JSON.stringify)).size, 1, 'stable height and position');
+    assert.equal(stability.changes, 1, 'badge mounts once without disappearing');
+    passed.push('truncated advertiser handle, brand-link ownership, stable badge and row height');
+
+    // Adding an X name decoration must not move an existing follower badge.
+    const decorationWrites = await page.evaluate(async () => {
+      const row = document.querySelector('#carol a:first-child > div');
+      const badge = row.querySelector('.xfc-badge');
+      const decoration = document.createElement('span'); decoration.textContent = '★'; row.append(decoration);
+      let writes = 0;
+      const observer = new MutationObserver(records => {
+        writes += records.filter(r => [...r.addedNodes, ...r.removedNodes].includes(badge)).length;
+      });
+      observer.observe(row, { childList: true });
+      for (let i = 0; i < 5; i++) {
+        window.postMessage({ channel: 'x-follower-count:v1', type: 'users', users: [{ handle: 'Carol', followers: 26000 }] }, location.origin);
+        await new Promise(resolve => setTimeout(resolve, 120));
+      }
+      observer.disconnect(); decoration.remove(); return writes;
+    });
+    assert.equal(decorationWrites, 0, 'unchanged data does not move the badge');
+
+    // A second page-world injection must retire the older renderer, including
+    // the original extension's isolated-world instance.
+    const firstRenderer = await page.evaluate(() => document.documentElement.dataset.xfcRenderer);
+    await page.addScriptTag({ content: fs.readFileSync(path.join(extensionPath, 'core.js'), 'utf8') });
+    for (let i = 0; i < 2; i++) await page.addScriptTag({ content: fs.readFileSync(path.join(extensionPath, 'content.js'), 'utf8') });
+    await page.waitForFunction(previous => document.documentElement.dataset.xfcRenderer &&
+      document.documentElement.dataset.xfcRenderer !== previous && document.querySelector('#advertiser .xfc-badge')?.dataset.handle === 'carol', firstRenderer);
+    await page.waitForFunction(() => document.querySelectorAll('#advertiser .xfc-badge').length === 1);
+    passed.push('name decorations and repeated injection do not move or duplicate badges');
+
+    await page.evaluate(() => { document.getElementById('dynamic').remove(); document.getElementById('advertiser').remove(); });
     await page.screenshot({ path: path.join(extensionPath, 'demo.png'), fullPage: true });
     assert.deepEqual(errors, []);
     const report = { passed: passed.length, checks: passed, browser: context.browser()?.version(), mode: 'Headless Chromium, actual unpacked extension, mock X responses (not live X)', liveXVerified: false };

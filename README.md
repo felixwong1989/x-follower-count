@@ -4,7 +4,7 @@
 
 Chrome Manifest V3 扩展，零构建。复用页面自身请求中的用户数据，不需要 API Key、后台服务或导出 Cookie。
 
-[下载 v1.0.1](https://github.com/felixwong1989/x-follower-count/releases/tag/v1.0.1) · [反馈问题](https://github.com/felixwong1989/x-follower-count/issues)
+[下载 v1.0.2](https://github.com/felixwong1989/x-follower-count/releases/tag/v1.0.2) · [反馈问题](https://github.com/felixwong1989/x-follower-count/issues)
 
 ![模拟页面中的标签效果](docs/demo.png)
 
@@ -61,11 +61,13 @@ Python 3 标准库即可打包，无需额外 Python 包：
 python scripts/package.py
 ```
 
-macOS/Linux 可使用 `python3 scripts/package.py`。输出为 `dist/x-follower-count-v1.0.1.zip`，`manifest.json` 位于 ZIP 根目录。ZIP 只包含运行扩展所需文件，不包含开发测试和模拟截图。
+macOS/Linux 可使用 `python3 scripts/package.py`。输出为 `dist/x-follower-count-v1.0.2.zip`，`manifest.json` 位于 ZIP 根目录。ZIP 只包含运行扩展所需文件，不包含开发测试和模拟截图。
 
 ## 已验证的范围
 
-- 6 项解析/清单测试和 5 组实际扩展浏览器测试通过。
+1.0.2 补充了广告用户名截断、品牌链接干扰、标签稳定性及重复注入的回归测试。旧版在模拟的响应式广告布局中持续增删标签，修复版标签只挂载一次，行高保持稳定。用户录屏中的具体广告页面仍需更新后复核。
+
+- 6 项解析/清单测试和 7 组实际扩展浏览器测试通过。
 - 实际 X Following 响应包含 50 个可解析用户。
 - 使用真实用户行 DOM 与实际响应回放，在独立 Chromium 中加载扩展，15 行均显示标签。
 - 真实登录态页面的显示脚本也已验证；修复版重新加载后的自动抓取、更多 X 路线和不同浏览器版本仍需要用户反馈。

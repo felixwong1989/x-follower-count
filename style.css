@@ -1,8 +1,10 @@
 .xfc-badge {
   display: inline-block;
+  box-sizing: border-box;
+  height: 20px;
   flex-shrink: 0;
   margin-inline-start: 6px;
-  padding: 1px 6px;
+  padding: 0 6px;
   border: 1px solid rgba(29, 155, 240, .28);
   border-radius: 5px;
   color: rgb(29, 155, 240);
