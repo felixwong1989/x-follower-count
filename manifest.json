@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "X 粉丝数",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "在 X 用户列表与信息流显示粉丝数，复用页面已有响应，不额外调用 API。",
   "minimum_chrome_version": "111",
   "content_scripts": [

@@ -41,7 +41,7 @@ const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'xfc-test-'));
     page.on('pageerror', error => errors.push(error.message));
     await page.goto('https://x.com/Alice/following');
     try {
-      await page.waitForFunction(() => document.querySelector('#alice .xfc-badge')?.textContent === '粉丝 1.2万', null, { timeout: 10000 });
+      await page.waitForFunction(() => document.querySelector('.xfc-badge[data-handle=alice]')?.textContent === '1.2万', null, { timeout: 10000 });
     } catch (error) {
       console.error('Startup diagnostics:', await page.evaluate(() => ({
         hookInstalled: !!window.__xFollowerNetworkInstalled,
@@ -59,29 +59,31 @@ const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'xfc-test-'));
       return response.json();
     });
     assert.equal(body.data.users[0].relationship_counts.followers, 0);
-    await page.waitForFunction(() => document.querySelector('#bob .xfc-badge')?.textContent === '粉丝 0');
-    await page.waitForFunction(() => document.querySelector('#carol .xfc-badge')?.textContent === '粉丝 2.5万');
-    assert.equal(await page.locator('#unknown .xfc-badge').count(), 0);
-    assert.equal(await page.locator('#quote .xfc-badge').count(), 1);
-    assert.equal(await page.locator('#carol a:first-child > div > .xfc-badge:last-child').count(), 1);
-    assert.equal(await page.locator('#alice a.name + .xfc-badge').count(), 1);
+    await page.waitForFunction(() => document.querySelector('.xfc-badge[data-handle=bob]')?.textContent === '0');
+    await page.waitForFunction(() => document.querySelector('.xfc-badge[data-handle=carol]')?.textContent === '2.5万');
+    assert.equal(await page.locator('.xfc-badge[data-handle=unknown]').count(), 0);
+    assert.equal(await page.locator('.xfc-badge[data-handle=alice]').count(), 2);
+    assert.equal(await page.locator('[data-testid=UserCell] .xfc-badge, [data-testid=User-Name] .xfc-badge').count(), 0);
+    assert.equal(await page.locator('.xfc-layer').count(), 1);
     passed.push('fetch interception preserves response; user list, zero, timeline, quote, missing data');
 
     await page.evaluate(() => {
       const host = document.createElement('div');
       host.id = 'dynamic'; host.dataset.testid = 'UserCell';
-      host.innerHTML = '<a href="/Dave"><span>@Dave</span></a>';
+      host.innerHTML = '<div class="avatar" data-testid="UserAvatar-Container-Dave"><a href="/Dave">D</a></div><a class="handle" href="/Dave"><span>@Dave</span></a>';
       document.querySelector('main').append(host);
     });
-    await page.waitForFunction(() => document.querySelector('#dynamic .xfc-badge')?.textContent === '粉丝 9,999');
+    await page.waitForFunction(() => document.querySelector('.xfc-badge[data-handle=dave]')?.textContent === '9,999');
     await page.evaluate(() => {
-      const link = document.querySelector('#dynamic a');
+      const link = document.querySelector('#dynamic a.handle');
+      const avatar = document.querySelector('#dynamic .avatar');
+      avatar.dataset.testid = 'UserAvatar-Container-Bob'; avatar.querySelector('a').href = '/Bob';
       link.href = '/Bob'; link.querySelector('span').textContent = '@Bob';
       history.pushState(null, '', '/Alice/followers');
     });
-    await page.waitForFunction(() => document.querySelector('#dynamic .xfc-badge')?.dataset.handle === 'bob');
-    assert.equal(await page.locator('#dynamic .xfc-badge').count(), 1);
-    assert.equal(await page.locator('#dynamic .xfc-badge').textContent(), '粉丝 0');
+    await page.waitForFunction(() => document.querySelectorAll('.xfc-badge[data-handle=bob]').length === 2 && !document.querySelector('.xfc-badge[data-handle=dave]'));
+    assert.equal(await page.locator('.xfc-badge[data-handle=bob]').count(), 2);
+    assert.equal(await page.locator('.xfc-badge[data-handle=bob]').first().textContent(), '0');
     passed.push('infinite scroll, virtualized row reuse, SPA navigation, no duplicate badges');
 
     mode = 'update';
@@ -94,7 +96,7 @@ const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'xfc-test-'));
       xhr.send();
     }));
     assert.equal(xhrBody.data.users[1].legacy.followers_count, 26000);
-    await page.waitForFunction(() => document.querySelector('#carol .xfc-badge')?.textContent === '粉丝 2.6万');
+    await page.waitForFunction(() => document.querySelector('.xfc-badge[data-handle=carol]')?.textContent === '2.6万');
     passed.push('XMLHttpRequest JSON path and count updates');
     const textBody = await page.evaluate(() => new Promise(resolve => {
       const xhr = new XMLHttpRequest(); xhr.open('GET', '/i/api/graphql/fixture/Text');
@@ -108,74 +110,90 @@ const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'xfc-test-'));
     assert.equal(apiRequests.length, 5);
     passed.push('XHR text, non-JSON and network errors preserve page behavior; no added API calls');
 
-    // Model an advertiser whose visible @handle is shortened after a badge
-    // changes the available space. A brand link is not the tweet author.
+    // Screenshot regression: a name link can contain an affiliation image.
+    // The labels must leave all page geometry unchanged at every tested width.
     await page.evaluate(() => {
-      const host = document.createElement('div');
-      host.dataset.testid = 'User-Name'; host.id = 'advertiser';
-      host.style.cssText = 'width:260px;display:flex;flex-wrap:wrap';
-      host.innerHTML = '<a href="/Brand"><span>G</span></a>' +
-        '<a class="author" href="/Carol"><div style="display:flex;flex-direction:row"><span>Long advertiser display name</span></div></a>' +
-        '<a class="handle" href="/Carol"><span>@Carol</span></a>';
-      document.querySelector('main').append(host);
-      window.__advertiserChanges = 0;
-      const observer = new MutationObserver(records => {
-        for (const record of records) {
-          if ([...record.addedNodes, ...record.removedNodes].some(n => n.matches?.('.xfc-badge'))) window.__advertiserChanges++;
-        }
-        const text = host.querySelector('a.handle span');
-        const expected = host.querySelector('.xfc-badge') ? '@Ca...' : '@Carol';
-        if (text.textContent !== expected) text.textContent = expected;
-      });
-      observer.observe(host, { childList: true, subtree: true });
-      window.__advertiserObserver = observer;
+      const tweet = document.createElement('article');
+      tweet.id = 'search-result'; tweet.dataset.testid = 'tweet';
+      tweet.style.cssText = 'display:flex;gap:12px;padding:16px;box-sizing:border-box;font:15px/20px Arial';
+      tweet.innerHTML = '<div class="avatar" data-testid="UserAvatar-Container-SearchUser"><a href="/SearchUser">S</a></div>' +
+        '<div class="search-body" style="flex:1;min-width:0"><div id="search-name" data-testid="User-Name" style="display:flex;flex-wrap:wrap;align-items:center">' +
+        '<a href="/SearchUser"><div style="display:flex;flex-direction:row;align-items:center"><span>Very long author display name</span>' +
+        '<span>✓</span><img alt="Affiliation" width="14" height="14" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"></div></a>' +
+        '<div class="metadata" style="display:flex;flex-wrap:wrap"><a href="/SearchUser"><span>@SearchUser</span></a><span> · Sep 16</span></div>' +
+        '</div><p id="search-text">Search result content should never move when follower data changes.</p>' +
+        '<div id="search-video" style="height:160px;background:#203445">Video placeholder</div></div>';
+      document.querySelector('main').append(tweet);
     });
-    await page.waitForFunction(() => document.querySelector('#advertiser .xfc-badge')?.dataset.handle === 'carol');
-    const stability = await page.evaluate(async () => {
-      const positions = [];
-      for (let i = 0; i < 12; i++) {
-        await new Promise(resolve => setTimeout(resolve, 100));
-        const badge = document.querySelector('#advertiser .xfc-badge');
-        positions.push(badge ? [badge.dataset.handle, badge.parentElement.parentElement.className,
-          document.querySelector('#advertiser').getBoundingClientRect().height] : null);
+    const geometry = async () => page.evaluate(() => {
+      const rect = id => { const r = document.getElementById(id).getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; };
+      return ['search-result', 'search-name', 'search-text', 'search-video'].map(rect);
+    });
+    for (const width of [540, 420, 340, 280]) {
+      await page.evaluate(width => {
+        document.getElementById('search-result').style.width = width + 'px';
+        window.postMessage({ channel: 'x-follower-count:v1', type: 'users', users: [{ handle: 'SearchUser', followers: 153000 }] }, location.origin);
+      }, width);
+      // The overlay's count can change without changing any header or tweet box.
+      await page.waitForFunction(() => document.querySelector('.xfc-badge[data-handle=searchuser]')?.textContent === '15.3万');
+      const initial = await geometry();
+      for (const followers of [0, 9999, 123400000, 153000]) {
+        await page.evaluate(followers => window.postMessage({ channel: 'x-follower-count:v1', type: 'users', users: [{ handle: 'SearchUser', followers }] }, location.origin), followers);
+        await page.waitForFunction(followers => document.querySelector('.xfc-badge[data-handle=searchuser]')?.title.includes(followers.toLocaleString('zh-CN') + ' 粉丝'), followers);
+        assert.deepEqual(await geometry(), initial, 'data updates must preserve tweet geometry at width ' + width);
       }
-      window.__advertiserObserver.disconnect();
-      return { positions, changes: window.__advertiserChanges };
-    });
-    assert.ok(stability.positions.every(p => p && p[0] === 'carol' && p[1] === 'author'), JSON.stringify(stability));
-    assert.equal(new Set(stability.positions.map(JSON.stringify)).size, 1, 'stable height and position');
-    assert.equal(stability.changes, 1, 'badge mounts once without disappearing');
-    passed.push('truncated advertiser handle, brand-link ownership, stable badge and row height');
+    }
+    assert.equal(await page.locator('#search-name .xfc-badge').count(), 0);
+    // Compare against a page with the entire follower overlay hidden.
+    const displayed = await geometry();
+    await page.evaluate(() => document.querySelector('.xfc-layer').style.display = 'none');
+    assert.deepEqual(await geometry(), displayed, 'overlay adds zero layout height');
+    await page.evaluate(() => document.querySelector('.xfc-layer').style.removeProperty('display'));
+    passed.push('affiliation image, wrapping metadata, four narrow widths and count changes preserve exact tweet geometry');
 
-    // Adding an X name decoration must not move an existing follower badge.
-    const decorationWrites = await page.evaluate(async () => {
-      const row = document.querySelector('#carol a:first-child > div');
-      const badge = row.querySelector('.xfc-badge');
-      const decoration = document.createElement('span'); decoration.textContent = '★'; row.append(decoration);
-      let writes = 0;
-      const observer = new MutationObserver(records => {
-        writes += records.filter(r => [...r.addedNodes, ...r.removedNodes].includes(badge)).length;
-      });
-      observer.observe(row, { childList: true });
-      for (let i = 0; i < 5; i++) {
-        window.postMessage({ channel: 'x-follower-count:v1', type: 'users', users: [{ handle: 'Carol', followers: 26000 }] }, location.origin);
-        await new Promise(resolve => setTimeout(resolve, 120));
-      }
-      observer.disconnect(); decoration.remove(); return writes;
+    // Scroll, resize and clipping must track the avatar, without covering menus.
+    await page.evaluate(() => { document.getElementById('search-result').scrollIntoView(); window.dispatchEvent(new Event('scroll')); });
+    await page.waitForFunction(() => {
+      const avatar = document.querySelector('[data-testid="UserAvatar-Container-SearchUser"]').getBoundingClientRect();
+      const badge = document.querySelector('.xfc-badge[data-handle=searchuser]');
+      return !badge.hidden && Math.abs(badge.getBoundingClientRect().top - (avatar.bottom - 8)) < 1;
     });
-    assert.equal(decorationWrites, 0, 'unchanged data does not move the badge');
+    await page.setViewportSize({ width: 800, height: 950 });
+    await page.waitForFunction(() => {
+      const avatar = document.querySelector('[data-testid="UserAvatar-Container-SearchUser"]').getBoundingClientRect();
+      const badge = document.querySelector('.xfc-badge[data-handle=searchuser]').getBoundingClientRect();
+      return Math.abs(badge.left + badge.width / 2 - (avatar.left + avatar.width / 2)) < 1;
+    });
+    await page.evaluate(() => {
+      const r = document.querySelector('[data-testid="UserAvatar-Container-SearchUser"]').getBoundingClientRect();
+      const cover = document.createElement('div'); cover.id = 'cover';
+      cover.style.cssText = `position:fixed;z-index:9999;background:#222;left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px`;
+      document.body.append(cover);
+    });
+    await page.waitForFunction(() => document.querySelector('.xfc-badge[data-handle=searchuser]').hidden);
+    await page.evaluate(() => document.getElementById('cover').remove());
+    await page.waitForFunction(() => !document.querySelector('.xfc-badge[data-handle=searchuser]').hidden);
+    passed.push('avatar tracking on scroll and resize; hidden behind dialogs and sticky headers');
 
-    // A second page-world injection must retire the older renderer, including
-    // the original extension's isolated-world instance.
+    await page.evaluate(() => {
+      const handle = document.querySelector('#search-name .metadata a span'); handle.textContent = '@Search...';
+      const brand = document.createElement('a'); brand.href = '/Brand'; brand.textContent = 'G';
+      document.querySelector('#search-name').prepend(brand);
+    });
+    await page.waitForFunction(() => document.querySelector('.xfc-badge[data-handle=searchuser]')?.textContent === '15.3万');
     const firstRenderer = await page.evaluate(() => document.documentElement.dataset.xfcRenderer);
     await page.addScriptTag({ content: fs.readFileSync(path.join(extensionPath, 'core.js'), 'utf8') });
     for (let i = 0; i < 2; i++) await page.addScriptTag({ content: fs.readFileSync(path.join(extensionPath, 'content.js'), 'utf8') });
-    await page.waitForFunction(previous => document.documentElement.dataset.xfcRenderer &&
-      document.documentElement.dataset.xfcRenderer !== previous && document.querySelector('#advertiser .xfc-badge')?.dataset.handle === 'carol', firstRenderer);
-    await page.waitForFunction(() => document.querySelectorAll('#advertiser .xfc-badge').length === 1);
-    passed.push('name decorations and repeated injection do not move or duplicate badges');
-
-    await page.evaluate(() => { document.getElementById('dynamic').remove(); document.getElementById('advertiser').remove(); });
+    await page.waitForFunction(previous => document.documentElement.dataset.xfcRenderer !== previous &&
+      document.querySelectorAll('.xfc-layer').length === 1 && document.querySelectorAll('.xfc-badge[data-handle=carol]').length === 1, firstRenderer);
+    // Bridge cache contains Alice/Bob/Carol/Dave, not the synthetic search user.
+    await page.evaluate(() => window.postMessage({ channel: 'x-follower-count:v1', type: 'users', users: [{ handle: 'SearchUser', followers: 153000 }] }, location.origin));
+    await page.waitForFunction(() => document.querySelectorAll('.xfc-badge[data-handle=searchuser]').length === 1);
+    passed.push('truncated handle, brand link, repeat injection and a single overlay renderer');
+    await page.evaluate(() => {
+      document.getElementById('dynamic').remove(); document.getElementById('search-result').remove();
+      window.scrollTo(0, 0);
+    });
     await page.screenshot({ path: path.join(extensionPath, 'demo.png'), fullPage: true });
     assert.deepEqual(errors, []);
     const report = { passed: passed.length, checks: passed, browser: context.browser()?.version(), mode: 'Headless Chromium, actual unpacked extension, mock X responses (not live X)', liveXVerified: false };

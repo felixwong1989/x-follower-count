@@ -1,6 +1,6 @@
 {
   "name": "x-follower-count",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "private": true,
   "description": "Zero-build Chrome Manifest V3 extension",
   "scripts": {

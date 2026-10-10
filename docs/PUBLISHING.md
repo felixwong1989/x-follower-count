@@ -4,7 +4,7 @@
 
 先使用 GitHub 维护源码、收集兼容性反馈并提供 Release 下载，再通过 Chrome Web Store 面向普通用户分发。两者可以并行维护同一套源码。
 
-项目仓库：<https://github.com/felixwong1989/x-follower-count>。首个版本为 `v1.0.1`，运行 ZIP 在对应 Release 中提供。
+项目仓库：<https://github.com/felixwong1989/x-follower-count>。最新版本为 `v1.0.3`，运行 ZIP 在对应 Release 中提供。
 
 ## 上传到 GitHub
 
@@ -14,13 +14,13 @@
 ```sh
 git init -b main
 git add .
-git commit -m "Initial X follower count extension v1.0.1"
+git commit -m "Initial X follower count extension v1.0.3"
 git remote add origin https://github.com/YOUR_ACCOUNT/x-follower-count.git
 git push -u origin main
 ```
 
 3. 使用 `python scripts/package.py` 生成运行包。
-4. 创建 `v1.0.1` Release，附上运行 ZIP 和 CHANGELOG 中的版本说明。
+4. 创建 `v1.0.3` Release，附上运行 ZIP 和 CHANGELOG 中的版本说明。
 
 参考：[创建仓库](https://docs.github.com/en/repositories/creating-and-managing-repositories/creating-a-new-repository)、[GitHub Releases](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases)。
 
