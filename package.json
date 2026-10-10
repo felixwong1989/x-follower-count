@@ -1,0 +1,13 @@
+{
+  "name": "x-follower-count",
+  "version": "1.0.1",
+  "private": true,
+  "description": "Zero-build Chrome Manifest V3 extension",
+  "scripts": {
+    "test": "node --test tests/core.test.cjs",
+    "test:browser": "node tests/browser.cjs"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
+}

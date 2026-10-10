@@ -1,0 +1,16 @@
+.xfc-badge {
+  display: inline-block;
+  flex-shrink: 0;
+  margin-inline-start: 6px;
+  padding: 1px 6px;
+  border: 1px solid rgba(29, 155, 240, .28);
+  border-radius: 5px;
+  color: rgb(29, 155, 240);
+  background: rgba(29, 155, 240, .08);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+  white-space: nowrap;
+  vertical-align: middle;
+  font-variant-numeric: tabular-nums;
+}
